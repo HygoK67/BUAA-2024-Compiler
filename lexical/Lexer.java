@@ -202,6 +202,7 @@ public class Lexer {
                                 index = 0;
                                 this.currentLine++;
                                 line = this.inputProgram.getLine(this.currentLine);
+                                continue;
                             }
                             if (line.charAt(index) == '*' && line.charAt(index+1) == '/') {
                                 index += 2;
