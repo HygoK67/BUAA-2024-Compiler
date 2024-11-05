@@ -1,7 +1,9 @@
 import lexical.Lexer;
 import program.ProgramException;
 import program.SourceProgram;
+import semantics.Visitor;
 import syntax.Parser;
+import syntax.nodes.CompUnit;
 
 import java.io.File;
 import java.io.FileWriter;
@@ -19,25 +21,33 @@ public class Compiler {
         }
 
         FileWriter parseWriter = new FileWriter("parser.txt");
+        FileWriter visitorWriter = new FileWriter("symbol.txt");
         FileWriter errorWriter = new FileWriter("error.txt");
 
         Lexer lexer = new Lexer(program, true, parseWriter);
         Parser parser = new Parser(lexer, true, parseWriter);
+        Visitor visitor = new Visitor(true, visitorWriter);
+
+        CompUnit compUnit = null;
 
         try {
-            parser.parseCompUnit();
+            compUnit = parser.parseCompUnit();
+            visitor.visitCompUnit(compUnit);
         }
         catch (Exception e) {
             e.printStackTrace();
         }
 
-        ProgramException.sortExceptions();
 
+        // 输出错误
+        ProgramException.sortExceptions();
         for (ProgramException exception : ProgramException.exceptions) {
             errorWriter.write(exception.toString() + "\n");
         }
 
+        // 关闭文件输出流
         parseWriter.close();
         errorWriter.close();
+        visitorWriter.close();
     }
 }

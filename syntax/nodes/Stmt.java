@@ -4,7 +4,7 @@ import lexical.Token;
 
 import java.util.ArrayList;
 
-public class Stmt {
+public class Stmt extends ASTnode {
 
     public int caseNum; // 当前语句属于第几种情况
 

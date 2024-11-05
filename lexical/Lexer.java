@@ -33,7 +33,6 @@ public class Lexer {
             int index = 0;
             while (index < line.length()) {
                 char ch = line.charAt(index);
-                System.out.println("reading" + " " + ch);
                 if (ch == ' ' || ch == '\t' || ch == '\r' || ch == '\n') { // 跳过任何空白字符
                     index++;
                     continue;

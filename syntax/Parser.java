@@ -23,6 +23,7 @@ public class Parser {
 
     public CompUnit parseCompUnit() throws Exception {
         CompUnit compUnit = new CompUnit();
+        compUnit.lineNum = lexer.getCurrentToken().getLine();
         while (lexer.getCurrentToken().getType() != Token.TokenType.EOF) {
             if (lexer.getCurrentToken().getType() == Token.TokenType.CONSTTK) { // 只能是常量定义
                 compUnit.decls.add(parseConstDecl());
@@ -66,6 +67,7 @@ public class Parser {
 
     public FuncDef parseMainFuncDef() throws Exception {
         FuncDef mainFuncDef = new FuncDef();
+        mainFuncDef.lineNum = lexer.getCurrentToken().getLine();
         mainFuncDef.isMain = true;
         skipSign(Token.TokenType.INTTK, null);
         skipSign(Token.TokenType.MAINTK, null);
@@ -93,6 +95,7 @@ public class Parser {
 
     public FuncDef parseFuncDef() throws Exception {
         FuncDef funcDef = new FuncDef();
+        funcDef.lineNum = lexer.getCurrentToken().getLine();
         funcDef.isMain = false;
         funcDef.funcType = parseFuncType();
         if (lexer.getCurrentToken().getType() == Token.TokenType.IDENFR) { // 解析函数标识符
@@ -120,6 +123,7 @@ public class Parser {
 
     public FuncFParams parseFuncFParams() throws Exception {
         FuncFParams funcFParams = new FuncFParams();
+        funcFParams.lineNum = lexer.getCurrentToken().getLine();
         funcFParams.funcFParams.add(parseFuncFParam());
         while (lexer.getCurrentToken().getType() == Token.TokenType.COMMA) {
             lexer.nextToken();
@@ -131,6 +135,7 @@ public class Parser {
 
     public FuncFParam parseFuncFParam() throws Exception {
         FuncFParam funcFParam = new FuncFParam();
+        funcFParam.lineNum = lexer.getCurrentToken().getLine();
         if (lexer.getCurrentToken().getType() == Token.TokenType.INTTK) {
             funcFParam.btype = Btype.INT;
             lexer.nextToken();
@@ -150,6 +155,7 @@ public class Parser {
             error("解析函数定义参数出错！");
         }
         if (lexer.getCurrentToken().getType() == Token.TokenType.LBRACK) {
+            funcFParam.isArray = true;
             lexer.nextToken();
             skipSign(Token.TokenType.RBRACK, 'k');
         }
@@ -159,10 +165,12 @@ public class Parser {
 
     public Block parseBlock() throws Exception {
         Block block = new Block();
+        block.lineNum = lexer.getCurrentToken().getLine();
         skipSign(Token.TokenType.LBRACE, null);
         while (lexer.getCurrentToken().getType() != Token.TokenType.RBRACE) {
             block.blockItems.add(parseBlockItem());
         }
+        block.lastRBraceLineNum = lexer.getCurrentToken().getLine(); // 记录一个块最后的 } 符号所在位置
         lexer.nextToken();
         if (debugFlag) { debugWriter.write("<Block>\n"); }
         return block;
@@ -170,6 +178,7 @@ public class Parser {
 
     public BlockItem parseBlockItem() throws Exception {
         BlockItem blockItem = new BlockItem();
+        blockItem.lineNum = lexer.getCurrentToken().getLine();
         if (lexer.getCurrentToken().getType() == Token.TokenType.INTTK
             || lexer.getCurrentToken().getType() == Token.TokenType.CHARTK) {
             blockItem.decl = parseVarDecl();
@@ -186,6 +195,7 @@ public class Parser {
 
     public Stmt parseStmt() throws Exception {
         Stmt stmt = new Stmt();
+        stmt.lineNum = lexer.getCurrentToken().getLine();
         if (lexer.getCurrentToken().getType() == Token.TokenType.LBRACE) { // 情况2
             stmt.caseNum = 2;
             stmt.block2 = parseBlock();
@@ -298,7 +308,7 @@ public class Parser {
                 else if (lexer.getCurrentToken().getType() == Token.TokenType.GETCHARTK) {
                     lexer.nextToken();
                     stmt.caseNum = 9;
-                    stmt.lval8 = lval;
+                    stmt.lval9 = lval;
                     skipSign(Token.TokenType.LPARENT, null);
                     skipSign(Token.TokenType.RPARENT, 'j');
                     skipSign(Token.TokenType.SEMICN, 'i');
@@ -311,6 +321,8 @@ public class Parser {
                 }
             }
             else {
+                // 没有赋值符号，那么就是情况1（直接一个 exp 表达式）
+                stmt.caseNum = 1;
                 if (lexer.getCurrentToken().getType() == Token.TokenType.SEMICN) {
                     lexer.nextToken();
                 }
@@ -326,6 +338,7 @@ public class Parser {
 
     public Stmt parseForStmt() throws Exception {
         Stmt stmt = new Stmt();
+        stmt.lineNum = lexer.getCurrentToken().getLine();
         stmt.caseNum = 0;
         stmt.lval0 = parseLval();
         skipSign(Token.TokenType.ASSIGN, null);
@@ -342,11 +355,13 @@ public class Parser {
 
     public BiOperandExp parseLOrExp() throws Exception {
         BiOperandExp biOperandExp = new BiOperandExp();
+        biOperandExp.lineNum = lexer.getCurrentToken().getLine();
         biOperandExp.leftElement = parseLAndExp();
         while (lexer.getCurrentToken().getType() == Token.TokenType.OR) {
             BiOperandExp newBioperandExp = new BiOperandExp();
+            newBioperandExp.lineNum = lexer.getCurrentToken().getLine();
             newBioperandExp.leftElement = biOperandExp;
-            biOperandExp.operator = lexer.getCurrentToken();
+            newBioperandExp.operator = lexer.getCurrentToken();
             if (debugFlag) { debugWriter.write("<LOrExp>\n"); }
             lexer.nextToken();
             newBioperandExp.rightElement = parseLAndExp();
@@ -358,11 +373,13 @@ public class Parser {
 
     public BiOperandExp parseLAndExp() throws Exception {
         BiOperandExp biOperandExp = new BiOperandExp();
+        biOperandExp.lineNum = lexer.getCurrentToken().getLine();
         biOperandExp.leftElement = parseEqExp();
         while (lexer.getCurrentToken().getType() == Token.TokenType.AND) {
             BiOperandExp newBioperandExp = new BiOperandExp();
+            newBioperandExp.lineNum = lexer.getCurrentToken().getLine();
             newBioperandExp.leftElement = biOperandExp;
-            biOperandExp.operator = lexer.getCurrentToken();
+            newBioperandExp.operator = lexer.getCurrentToken();
             if (debugFlag) { debugWriter.write("<LAndExp>\n"); }
             lexer.nextToken();
             newBioperandExp.rightElement = parseEqExp();
@@ -374,12 +391,14 @@ public class Parser {
 
     public BiOperandExp parseEqExp() throws Exception {
         BiOperandExp biOperandExp = new BiOperandExp();
+        biOperandExp.lineNum = lexer.getCurrentToken().getLine();
         biOperandExp.leftElement = parseRelExp();
         while (lexer.getCurrentToken().getType() == Token.TokenType.EQL
                 || lexer.getCurrentToken().getType() == Token.TokenType.NEQ) {
             BiOperandExp newBioperandExp = new BiOperandExp();
+            newBioperandExp.lineNum = lexer.getCurrentToken().getLine();
             newBioperandExp.leftElement = biOperandExp;
-            biOperandExp.operator = lexer.getCurrentToken();
+            newBioperandExp.operator = lexer.getCurrentToken();
             if (debugFlag) { debugWriter.write("<EqExp>\n"); }
             lexer.nextToken();
             newBioperandExp.rightElement = parseRelExp();
@@ -391,14 +410,16 @@ public class Parser {
 
     public BiOperandExp parseRelExp() throws Exception {
         BiOperandExp biOperandExp = new BiOperandExp();
+        biOperandExp.lineNum = lexer.getCurrentToken().getLine();
         biOperandExp.leftElement = parseAddExp();
         while (lexer.getCurrentToken().getType() == Token.TokenType.LSS
             || lexer.getCurrentToken().getType() == Token.TokenType.GRE
             || lexer.getCurrentToken().getType() == Token.TokenType.LEQ
             || lexer.getCurrentToken().getType() == Token.TokenType.GEQ) {
             BiOperandExp newBioperandExp = new BiOperandExp();
+            newBioperandExp.lineNum = lexer.getCurrentToken().getLine();
             newBioperandExp.leftElement = biOperandExp;
-            biOperandExp.operator = lexer.getCurrentToken();
+            newBioperandExp.operator = lexer.getCurrentToken();
             if (debugFlag) { debugWriter.write("<RelExp>\n"); }
             lexer.nextToken();
             newBioperandExp.rightElement = parseAddExp();
@@ -410,6 +431,7 @@ public class Parser {
 
     public Decl parseConstDecl() throws Exception {
         Decl decl = new Decl();
+        decl.lineNum = lexer.getCurrentToken().getLine();
         decl.isConst = true;
         skipSign(Token.TokenType.CONSTTK, null); // 保证第一个符号是 const
         if (lexer.getCurrentToken().getType() == Token.TokenType.INTTK) {
@@ -439,6 +461,7 @@ public class Parser {
 
     public Decl parseVarDecl() throws Exception {
         Decl decl = new Decl();
+        decl.lineNum = lexer.getCurrentToken().getLine();
         decl.isConst = false;
         if (lexer.getCurrentToken().getType() == Token.TokenType.INTTK) {
             decl.btype = Btype.INT;
@@ -467,6 +490,7 @@ public class Parser {
 
     public VarConstDef parseVarDef() throws Exception {
         VarConstDef varConstDef = new VarConstDef();
+        varConstDef.lineNum = lexer.getCurrentToken().getLine();
         varConstDef.isConst = false;
         if (lexer.getCurrentToken().getType() != Token.TokenType.IDENFR) {
             error("解析 varDef 时遇到了错误");
@@ -488,6 +512,7 @@ public class Parser {
 
     public VarConstDef parseConstDef() throws Exception {
         VarConstDef varConstDef = new VarConstDef();
+        varConstDef.lineNum = lexer.getCurrentToken().getLine();
         varConstDef.isConst = true;
         if (lexer.getCurrentToken().getType() != Token.TokenType.IDENFR) {
             error("解析 constDef 时遇到了错误");
@@ -508,6 +533,7 @@ public class Parser {
 
     public InitVal parseInitVal() throws Exception {
         InitVal initVal = new InitVal();
+        initVal.lineNum = lexer.getCurrentToken().getLine();
         initVal.isConst = false;
         initVal.stringConst = null;
         if (lexer.getCurrentToken().getType() == Token.TokenType.STRCON) {
@@ -542,6 +568,7 @@ public class Parser {
 
     public InitVal parseConstInitVal() throws Exception {
         InitVal initVal = new InitVal();
+        initVal.lineNum = lexer.getCurrentToken().getLine();
         initVal.isConst = true;
         initVal.stringConst = null;
         if (lexer.getCurrentToken().getType() == Token.TokenType.STRCON) {
@@ -583,9 +610,11 @@ public class Parser {
 
     public BiOperandExp parseAddExp() throws Exception {
         BiOperandExp biOperandExp = new BiOperandExp();
+        biOperandExp.lineNum = lexer.getCurrentToken().getLine();
         biOperandExp.leftElement = parseMulExp();
         while (lexer.getCurrentToken().getType() == Token.TokenType.PLUS || lexer.getCurrentToken().getType() == Token.TokenType.MINU) {
             BiOperandExp newBiOperandExp = new BiOperandExp();
+            newBiOperandExp.lineNum = lexer.getCurrentToken().getLine();
             newBiOperandExp.leftElement = biOperandExp;
             newBiOperandExp.operator = lexer.getCurrentToken();
             if (debugFlag) { debugWriter.write("<AddExp>\n"); }
@@ -599,11 +628,13 @@ public class Parser {
 
     public BiOperandExp parseMulExp() throws Exception {
         BiOperandExp biOperandExp = new BiOperandExp();
+        biOperandExp.lineNum = lexer.getCurrentToken().getLine();
         biOperandExp.leftElement = parseUnaryExp();
         while (lexer.getCurrentToken().getType() == Token.TokenType.MULT
                 || lexer.getCurrentToken().getType() == Token.TokenType.DIV
                 || lexer.getCurrentToken().getType() == Token.TokenType.MOD) {
             BiOperandExp newBiOperandExp = new BiOperandExp();
+            newBiOperandExp.lineNum = lexer.getCurrentToken().getLine();
             newBiOperandExp.leftElement = biOperandExp;
             newBiOperandExp.operator = lexer.getCurrentToken();
             if (debugFlag) { debugWriter.write("<MulExp>\n"); }
@@ -617,9 +648,11 @@ public class Parser {
 
     public UnaryExp parseUnaryExp() throws Exception {
         UnaryExp unaryExp = new UnaryExp();
+        unaryExp.lineNum = lexer.getCurrentToken().getLine();
         if (lexer.getCurrentToken().getType() == Token.TokenType.IDENFR
                 && lexer.tokenPreRead(1).getType() == Token.TokenType.LPARENT) {
             unaryExp.ident = new Ident(lexer.getCurrentToken().getToken());
+            unaryExp.ident.lineNum = unaryExp.lineNum;
             lexer.nextToken();lexer.nextToken();
             if (lexer.getCurrentToken().getType() == Token.TokenType.RPARENT) {
                 lexer.nextToken();
@@ -649,6 +682,7 @@ public class Parser {
 
     public PrimaryExp parsePrimaryExp() throws Exception {
         PrimaryExp primaryExp = new PrimaryExp();
+        primaryExp.lineNum = lexer.getCurrentToken().getLine();
         if (lexer.getCurrentToken().getType() == Token.TokenType.LPARENT) {
             lexer.nextToken();
             primaryExp.exp = parseExp();
@@ -692,10 +726,12 @@ public class Parser {
 
     public Lval parseLval() throws Exception {
         Lval lval = new Lval();
+        lval.lineNum = lexer.getCurrentToken().getLine();
         if (lexer.getCurrentToken().getType() != Token.TokenType.IDENFR) {
             error("无法解析的左值表达式 Lval");
         }
         lval.ident = new Ident(lexer.getCurrentToken().getToken());
+        lval.ident.lineNum = lval.lineNum;
         lexer.nextToken();
         if (lexer.getCurrentToken().getType() == Token.TokenType.LBRACK) {
             lexer.nextToken();
@@ -708,6 +744,7 @@ public class Parser {
 
     public FuncRParams parseFuncRParams() throws Exception {
         FuncRParams funcRParams = new FuncRParams();
+        funcRParams.lineNum = lexer.getCurrentToken().getLine();
         funcRParams.exps.add(parseExp());
         while (true) {
             if (lexer.getCurrentToken().getType() == Token.TokenType.COMMA) {
@@ -723,8 +760,7 @@ public class Parser {
     }
 
     public BiOperandExp parseConstExp() throws Exception {
-        BiOperandExp biOperandExp;
-        biOperandExp = parseAddExp();
+        BiOperandExp biOperandExp = parseAddExp();
         if (debugFlag) { debugWriter.write("<ConstExp>\n"); }
         return biOperandExp;
     }
