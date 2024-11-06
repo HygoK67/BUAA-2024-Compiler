@@ -13,8 +13,8 @@ import java.io.FileWriter;
 
 public class Visitor {
 
-    private boolean debugFlag;
-    private FileWriter debugWriter;
+    private final boolean debugFlag;
+    private final FileWriter debugWriter;
 
     public Visitor(boolean debugFlag, FileWriter debugWriter) {
         this.debugFlag = debugFlag;
@@ -50,9 +50,16 @@ public class Visitor {
             if (symbolType.isConst) { // 当当前声明为常数时，才进行符号表的初始值初始化操作
                 initConst(varConstDef.initVal, symbol);
             }
+            else { // 普通变量的初始值也需要进行检查
+                if (varConstDef.initVal != null && varConstDef.initVal.expArray != null) {
+                    for(BiOperandExp exp : varConstDef.initVal.expArray) {
+                        visitExp(exp);
+                    }
+                }
+            }
             Symbol newSymbol = SymbolTable.getCurrentSymbolTable().insertSymbol(symbol);
             if (newSymbol != null) {
-                if (debugFlag) {debugWriter.write(newSymbol.toString() + "\n");}
+                if (debugFlag) {debugWriter.write(newSymbol + "\n");}
             }
             else {
                 ProgramException.newException(varConstDef.lineNum + 1, 'b');
@@ -71,13 +78,20 @@ public class Visitor {
             }
         }
         else if (initVal.expArray != null) {
-            for (int i = 0; i < arrayLength; i++) {
+            for (int i = 0; i < initVal.expArray.size(); i++) { // 先赋值已经提供的值
+                ExpInfo constExpInfo = visitExp(initVal.expArray.get(i));
+                if (constExpInfo == null) { // 在常数赋值过程中发现错误，直接返回
+                    return;
+                }
                 if (((ValueType) symbol.symbolType).basicType == ValueType.BasicType.CHR) {
-                    symbol.constValues.add(visitExp(initVal.expArray.get(i)).value & 0xff);
+                    symbol.constValues.add(constExpInfo.value & 0xff);
                 }
                 else {
-                    symbol.constValues.add(visitExp(initVal.expArray.get(i)).value);
+                    symbol.constValues.add(constExpInfo.value);
                 }
+            }
+            for (int i = initVal.expArray.size(); i < arrayLength; i++) {
+                symbol.constValues.add(0);
             }
         }
         else {
@@ -108,7 +122,7 @@ public class Visitor {
             ProgramException.newException(funcDef.lineNum + 1, 'b');
         }
         else {
-            if (debugFlag) {debugWriter.write(functionSymbol.toString() + "\n");}
+            if (debugFlag) {debugWriter.write(functionSymbol + "\n");}
         }
         // 继续分析函数的参数并将这些参数输出和记录
         SymbolTable.newSymbolTable(); // 新建一级符号表
@@ -118,10 +132,13 @@ public class Visitor {
         currentReturnType = newFunctionType.returnType;
         visitBlock(funcDef.block, false); // 分析函数体
         if (currentReturnType != FunctionType.ReturnType.VOID) {
-            if (funcDef.block.blockItems.getLast().stmt == null) { // 有返回值的函数需要检查最后一个语句是否是返回语句
+            if (funcDef.block.blockItems.isEmpty()) {
                 ProgramException.newException(funcDef.block.lastRBraceLineNum + 1, 'g');
             }
-            else if (funcDef.block.blockItems.getLast().stmt.caseNum != 7) {
+            else if (funcDef.block.blockItems.get(funcDef.block.blockItems.size()-1).stmt == null) { // 有返回值的函数需要检查最后一个语句是否是返回语句
+                ProgramException.newException(funcDef.block.lastRBraceLineNum + 1, 'g');
+            }
+            else if (funcDef.block.blockItems.get(funcDef.block.blockItems.size()-1).stmt.caseNum != 7) {
                 ProgramException.newException(funcDef.block.lastRBraceLineNum + 1, 'g');
             }
         }
@@ -142,7 +159,7 @@ public class Visitor {
                 ProgramException.newException(funcFParam.lineNum + 1, 'b');
             }
             else {
-                if (debugFlag) {debugWriter.write(newParamSymbol.toString() + "\n");}
+                if (debugFlag) {debugWriter.write(newParamSymbol + "\n");}
             }
         }
     }
@@ -153,10 +170,13 @@ public class Visitor {
         SymbolTable.newSymbolTable(); // 新建一级符号表
         visitBlock(mainFuncDef.block, false);
         SymbolTable.backToUpperScope(); // 返回到上级符号表
-        if (mainFuncDef.block.blockItems.getLast().stmt == null) { // 主函数也需要检查最后一个语句是否是返回语句
+        if (mainFuncDef.block.blockItems.isEmpty()) {
+            ProgramException.newException(mainFuncDef.block.lastRBraceLineNum + 1, 'g'); // 主函数也需要检查最后一个语句是否是返回语句
+        }
+        else if (mainFuncDef.block.blockItems.get(mainFuncDef.block.blockItems.size()-1).stmt == null) {
             ProgramException.newException(mainFuncDef.block.lastRBraceLineNum + 1, 'g');
         }
-        else if (mainFuncDef.block.blockItems.getLast().stmt.caseNum != 7) {
+        else if (mainFuncDef.block.blockItems.get(mainFuncDef.block.blockItems.size()-1).stmt.caseNum != 7) {
             ProgramException.newException(mainFuncDef.block.lastRBraceLineNum + 1, 'g');
         }
     }
@@ -232,26 +252,41 @@ public class Visitor {
                     visitExp(stmt.returnExp7); // 检查返回语句内部的表达式有没有问题
                 }
             }
-            else {
+            else { // 返回表达式是空的 即 return;
                 if (currentReturnType != FunctionType.ReturnType.VOID) {
-                    error("有返回值的函数在返回语句中什么都没有返回!");
+                    // error("有返回值的函数在返回语句中什么都没有返回!");
+                    // 不需要报出这种错误，因此注释掉了
                 }
             }
         }
         else if (stmt.caseNum == 8) {
             ExpInfo lvalInfo = visitLval(stmt.lval8);
             if (lvalInfo != null && lvalInfo.type.isConst) {
-                ProgramException.newException(stmt.lval0.lineNum + 1, 'h'); // 不能修改常量的值
+                ProgramException.newException(stmt.lval8.lineNum + 1, 'h'); // 不能修改常量的值
             }
         }
         else if (stmt.caseNum == 9) {
             ExpInfo lvalInfo = visitLval(stmt.lval9);
             if (lvalInfo != null && lvalInfo.type.isConst) {
-                ProgramException.newException(stmt.lval0.lineNum + 1, 'h'); // 不能修改常量的值
+                ProgramException.newException(stmt.lval9.lineNum + 1, 'h'); // 不能修改常量的值
             }
         }
         else if (stmt.caseNum == 10) {
-            // TODO: 检查 printf 函数的占位符是否等于提供的参数数量
+            int placeHolderCount = 0;
+            for (int i = 0;i < stmt.stringConst10.getToken().length() - 1;i++) {
+                if (stmt.stringConst10.getToken().charAt(i) == '%') {
+                    if (stmt.stringConst10.getToken().charAt(i+1) == 'c' || stmt.stringConst10.getToken().charAt(i+1) == 'd') {
+                        placeHolderCount++;
+                    }
+                }
+            }
+            if (placeHolderCount != stmt.exps10.size()) {
+                ProgramException.newException(stmt.lineNum + 1, 'l');
+                return;
+            }
+            for (BiOperandExp exp : stmt.exps10) {
+                visitExp(exp);
+            }
         }
     }
 
@@ -278,24 +313,27 @@ public class Visitor {
             }
             else {
                 // 当内部的exp不为空时，例如 a[5+2]，代表了对于数组的索引，需要进一步访问子表达式以获得其值
+                expInfo.type.arrayLength = null; // 索引表达式不为空，则表达式是普通的值，不再是数组类型
                 if (valueType.isConst) { // 如果是常数组，则还需要存储常数值
                     ExpInfo subExpInfo = visitExp(lval.exp);
                     if (subExpInfo == null) {return null;} // 如果访问子表达式发生了异常，那么也就不继续分析当前的左值
-                    expInfo.value = symbol.constValues.get(visitExp(lval.exp).value);
+                    if (subExpInfo.type.isConst) { // 只有数组本身是常数组并且数组的索引表达式也是常数表达式的时候才能赋值
+                        expInfo.value = symbol.constValues.get(subExpInfo.value);
+                    }
                 }
             }
         }
         else { // 是普通变量
             expInfo.type.arrayLength = null;
             if (valueType.isConst) { // 如果是常量，则还需要存储常数值
-                expInfo.value = symbol.constValues.getFirst();
+                expInfo.value = symbol.constValues.get(0);
             }
         }
         return expInfo;
     }
 
     private ExpInfo visitExp(BiOperandExp exp) throws Exception {
-//        System.out.println("正在检查第 " + exp.lineNum + " 行的表达式, 其操作符为" + (exp.operator == null ? "null" : exp.operator.getToken()) );
+        System.out.println("正在检查第 " + exp.lineNum + " 行的表达式, 其操作符为" + (exp.operator == null ? "null" : exp.operator.getToken()) );
         if (exp.operator == null) { // 操作符为null有两种情况，一种是 leftElement 是BiOperandExp，一种是leftElement是UnaryExp
             // 操作符为空的情况下，该表达式的返回信息和子表达式完全相同
             if (exp.leftElement instanceof BiOperandExp) { // 左子树是二元表达式
@@ -370,18 +408,21 @@ public class Visitor {
                 return expInfo;
             }
             else if (unaryExp.unaryOp.getType() == Token.TokenType.MINU) {
-                expInfo.value = -expInfo.value;
+                if (expInfo.type.isConst) {
+                    expInfo.value = -expInfo.value;
+                }
                 return expInfo;
             }
             else if (unaryExp.unaryOp.getType() == Token.TokenType.NOT) {
-                if (expInfo.value == 0) {
-                    expInfo.value = 1;
-                    return expInfo;
+                if (expInfo.type.isConst) {
+                    if (expInfo.value == 0) {
+                        expInfo.value = 1;
+                    }
+                    else {
+                        expInfo.value = 0;
+                    }
                 }
-                else {
-                    expInfo.value = 0;
-                    return expInfo;
-                }
+                return expInfo;
             }
             else {
                 error("不支持的一元表达式操作符!");
@@ -457,16 +498,23 @@ public class Visitor {
         for (int i = 0; i < len1; i++) { // 然后遍历每个参数，检查函数调用中每个参数和原始的函数定义的对应参数是否匹配
             // 测试用例保证了不会出现数组名参与运算的情况，
             BiOperandExp funcRExp = funcRParams.exps.get(i);
-            ValueType funcRParamType = visitExp(funcRExp).type; // 分析实参表达式，得到其类型信息
+            ExpInfo funcRExpInfo = visitExp(funcRExp);
+            if (funcRExpInfo == null) { // 如果实参表达式出现了问题，则有可能返回 null
+                return null;
+            }
+            ValueType funcRParamType = funcRExpInfo.type; // 分析实参表达式，得到其类型信息
             ValueType funcFParamType = functionType.paramTypes.get(i); // 查找符号表，得到预先定义的参数类型信息
             if (funcRParamType.arrayLength == null && funcFParamType.arrayLength != null) {
                 ProgramException.newException(funcIdentifier.lineNum + 1, 'e'); // 向数组类型传递非数组变量
+                break;
             }
             if (funcRParamType.arrayLength != null && funcFParamType.arrayLength == null) {
                 ProgramException.newException(funcIdentifier.lineNum + 1, 'e'); // 向非数组类型传递数组变量
+                break;
             }
             if (funcRParamType.arrayLength != null && funcFParamType.arrayLength != null && funcFParamType.basicType != funcRParamType.basicType) {
                 ProgramException.newException(funcIdentifier.lineNum + 1, 'e'); // 形参和实参都是数组，但是类型不匹配
+                break;
             }
         }
         return expInfo;

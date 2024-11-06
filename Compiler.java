@@ -2,6 +2,7 @@ import lexical.Lexer;
 import program.ProgramException;
 import program.SourceProgram;
 import semantics.Visitor;
+import symbol.SymbolTable;
 import syntax.Parser;
 import syntax.nodes.CompUnit;
 
@@ -26,18 +27,18 @@ public class Compiler {
 
         Lexer lexer = new Lexer(program, true, parseWriter);
         Parser parser = new Parser(lexer, true, parseWriter);
-        Visitor visitor = new Visitor(true, visitorWriter);
+        Visitor visitor = new Visitor(false, visitorWriter);
 
         CompUnit compUnit = null;
 
         try {
             compUnit = parser.parseCompUnit();
             visitor.visitCompUnit(compUnit);
+            SymbolTable.printSymbolTable(visitorWriter);
         }
         catch (Exception e) {
             e.printStackTrace();
         }
-
 
         // 输出错误
         ProgramException.sortExceptions();

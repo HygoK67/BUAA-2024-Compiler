@@ -226,15 +226,25 @@ public class Parser {
                 lexer.nextToken();
             }
             else {
-                stmt.condExp4 = parseCond();
-                skipSign(Token.TokenType.SEMICN, 'i');
+                if (lexer.getCurrentToken().getType() == Token.TokenType.RPARENT) {
+                    skipSign(Token.TokenType.SEMICN, 'i');
+                }
+                else {
+                    stmt.condExp4 = parseCond();
+                    skipSign(Token.TokenType.SEMICN, 'i');
+                }
             }
             if (lexer.getCurrentToken().getType() == Token.TokenType.RPARENT) {
                 lexer.nextToken();
             }
             else {
-                stmt.forStmtB4 = parseForStmt();
-                skipSign(Token.TokenType.RPARENT, 'j');
+                if (lexer.getCurrentToken().getType() == Token.TokenType.LBRACE) {
+                    skipSign(Token.TokenType.RPARENT, 'j');
+                }
+                else {
+                    stmt.forStmtB4 = parseForStmt();
+                    skipSign(Token.TokenType.RPARENT, 'j');
+                }
             }
             stmt.stmt4 = parseStmt();
         }
@@ -284,12 +294,16 @@ public class Parser {
         }
         else { // 情况0，情况1，情况8和情况9
             boolean assignFlag = false; //  是否出现赋值符号，如果出现则不可能是情况 1
+            int crtLinNum = lexer.getCurrentToken().getLine();
             for (int i = 0;;i++) {
                 if (lexer.tokenPreRead(i).getType() == Token.TokenType.ASSIGN) {
                     assignFlag = true;
                     break;
                 }
                 if (lexer.tokenPreRead(i).getType() == Token.TokenType.SEMICN) {
+                    break;
+                }
+                if (lexer.tokenPreRead(i).getLine() > crtLinNum) {
                     break;
                 }
             }

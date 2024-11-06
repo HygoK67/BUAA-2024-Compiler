@@ -43,15 +43,15 @@ public class Utilities {
             else if (charStr.equals("\\v")) {
                 return 11;
             }
-            else if (charStr.equals("\"")) {
+            else if (charStr.equals("\\\"")) {
                 return (int) '\"';
             }
-            else if (charStr.equals("\'")) {
+            else if (charStr.equals("\\\'")) {
                 return (int) '\'';
             }
             else {
                 if (charStr.length() != 1) {
-                    System.out.println("监测到非法的字符");
+                    System.out.println("监测到非法的字符 ");
                 }
                 else {
                     return (int) charStr.charAt(0);

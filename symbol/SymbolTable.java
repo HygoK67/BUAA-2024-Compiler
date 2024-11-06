@@ -1,11 +1,14 @@
 package symbol;
 
+import java.io.FileWriter;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
 
 public class SymbolTable {
 
     private HashMap<String, Symbol> symbolTable; // 根据名字来查询符号的hashmap
+    private ArrayList<Symbol> symbols; // 用于存储各个 symbol 的存储顺序
     private int scopeNum;
     private SymbolTable parentScopeSymbolTable; // 父作用域的符号表指针
     private HashMap<Integer, SymbolTable> sonScopeSymbolTables; // 各个子作用域的符号表指针
@@ -13,6 +16,7 @@ public class SymbolTable {
 
     public SymbolTable(int scopeNum, SymbolTable parentScopeSymbolTable) {
         this.symbolTable = new HashMap<>();
+        this.symbols = new ArrayList<>();
         this.scopeNum = scopeNum;
         this.parentScopeSymbolTable = parentScopeSymbolTable;
         this.sonScopeSymbolTables = new HashMap<>();
@@ -31,6 +35,7 @@ public class SymbolTable {
             newSymbol.scopeNum = scopeNum;
             newSymbol.defLineNum = defLineNum;
             symbolTable.put(symbolName, newSymbol);
+            symbols.add(newSymbol);
             return newSymbol;
         }
     }
@@ -41,6 +46,7 @@ public class SymbolTable {
         }
         else {
             symbolTable.put(symbol.symbolName, symbol);
+            symbols.add(symbol);
             return symbol;
         }
     }
@@ -68,9 +74,17 @@ public class SymbolTable {
     }
 
     // 符号表全局需要用到的函数和变量
-    private static int symbolTableCount = 1; // 记录了全部的符号表数量，初始时为 1
+    private static int symbolTableCount; // 记录了全部的符号表数量，初始时为 1
 
-    private static SymbolTable currentSymbolTable = new SymbolTable(1, null);
+    private static SymbolTable currentSymbolTable;
+    private static ArrayList<SymbolTable> symbolTableList;
+
+    static {
+        symbolTableCount = 1;
+        currentSymbolTable = new SymbolTable(1, null);
+        symbolTableList = new ArrayList<>();
+        symbolTableList.add(currentSymbolTable);
+    }
 
     public static SymbolTable getCurrentSymbolTable() {
         return currentSymbolTable;
@@ -81,6 +95,7 @@ public class SymbolTable {
         SymbolTable newSymbolTable = new SymbolTable(symbolTableCount, currentSymbolTable);
         currentSymbolTable.sonScopeSymbolTables.put(newSymbolTable.scopeNum, newSymbolTable);
         currentSymbolTable = newSymbolTable;
+        symbolTableList.add(currentSymbolTable);
         return currentSymbolTable;
     }
 
@@ -92,6 +107,15 @@ public class SymbolTable {
     public static void jumpToSymbolTableByScopeNum(int scopeNum) {
         if (currentSymbolTable.sonScopeSymbolTables.containsKey(scopeNum)) {
             currentSymbolTable = currentSymbolTable.sonScopeSymbolTables.get(scopeNum);
+        }
+    }
+
+    public static void printSymbolTable(FileWriter debugWriter) throws IOException {
+        System.out.println("符号表数量为 " + symbolTableList.size());
+        for (SymbolTable symbolTable : symbolTableList) {
+            for (Symbol symbol : symbolTable.symbols) {
+                debugWriter.write(symbol.toString() + "\n");
+            }
         }
     }
 
