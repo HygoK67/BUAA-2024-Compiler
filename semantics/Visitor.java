@@ -50,10 +50,18 @@ public class Visitor {
             if (symbolType.isConst) { // 当当前声明为常数时，才进行符号表的初始值初始化操作
                 initConst(varConstDef.initVal, symbol);
             }
-            else { // 普通变量的初始值也需要进行检查
-                if (varConstDef.initVal != null && varConstDef.initVal.expArray != null) {
-                    for(BiOperandExp exp : varConstDef.initVal.expArray) {
-                        visitExp(exp);
+            else { // 普通变量的初始值也需要进行符号表的初始化
+                if (varConstDef.initVal != null) { // 程序给出初始值，则使用程序的初始值
+                    initConst(varConstDef.initVal, symbol);
+                }
+                else { // 如果程序没有给出初始值，那么就初始化为0
+                    if (symbolType.arrayLength != null) { // 数组初始化，全是0
+                        for (int i = 0; i < symbolType.arrayLength; i++) {
+                            symbol.constValues.add(0);
+                        }
+                    }
+                    else { // 普通变量初始化，一个0
+                        symbol.constValues.add(0);
                     }
                 }
             }
@@ -70,10 +78,10 @@ public class Visitor {
     private void initConst(InitVal initVal, Symbol symbol) throws Exception { // 把常数（或者数组）定义中的常数值赋值到符号表的 Symbol 项目中
         int arrayLength = ((ValueType) symbol.symbolType).arrayLength == null ? 1 : ((ValueType) symbol.symbolType).arrayLength;
         if (initVal.stringConst != null) {
-            for (int i = 0; i < initVal.stringConst.length(); i++) {
+            for (int i = 1; i < initVal.stringConst.length()-1; i++) {
                 symbol.constValues.add((int) initVal.stringConst.charAt(i));
             }
-            for (int i = initVal.stringConst.length(); i < arrayLength; i++) {
+            for (int i = initVal.stringConst.length()-2; i < arrayLength; i++) {
                 symbol.constValues.add(0);
             }
         }
@@ -84,7 +92,13 @@ public class Visitor {
                     return;
                 }
                 if (((ValueType) symbol.symbolType).basicType == ValueType.BasicType.CHR) {
-                    symbol.constValues.add(constExpInfo.value & 0xff);
+                    if (constExpInfo.value == null) { // 有可能初始值不是常数，是表达式，此时 value 是 null
+                        symbol.constValues.add(null);
+                    }
+                    else {
+                        boolean highest = (constExpInfo.value & 0xff) >> 7 == 1;
+                        symbol.constValues.add((constExpInfo.value & 0xff) | (highest ? 0xFFFFFF00 : 0));
+                    }
                 }
                 else {
                     symbol.constValues.add(constExpInfo.value);
@@ -125,7 +139,7 @@ public class Visitor {
             if (debugFlag) {debugWriter.write(functionSymbol + "\n");}
         }
         // 继续分析函数的参数并将这些参数输出和记录
-        SymbolTable.newSymbolTable(); // 新建一级符号表
+        SymbolTable.newSymbolTable(newFunctionType.returnType); // 新建一级符号表
         if (funcDef.funcFParams != null) { // 当函数存在参数时, 分析函数参数
             visitFuncFParams(funcDef.funcFParams, newFunctionType);
         }
@@ -167,7 +181,7 @@ public class Visitor {
     private void visitMainFuncDef(FuncDef mainFuncDef) throws Exception {
         // 主函数不需要对返回值，参数，名字等内容进行分析，直接分析block 即可
         currentReturnType = FunctionType.ReturnType.INT;
-        SymbolTable.newSymbolTable(); // 新建一级符号表
+        SymbolTable.newSymbolTable(currentReturnType); // 新建一级符号表
         visitBlock(mainFuncDef.block, false);
         SymbolTable.backToUpperScope(); // 返回到上级符号表
         if (mainFuncDef.block.blockItems.isEmpty()) {
@@ -333,7 +347,6 @@ public class Visitor {
     }
 
     private ExpInfo visitExp(BiOperandExp exp) throws Exception {
-        System.out.println("正在检查第 " + exp.lineNum + " 行的表达式, 其操作符为" + (exp.operator == null ? "null" : exp.operator.getToken()) );
         if (exp.operator == null) { // 操作符为null有两种情况，一种是 leftElement 是BiOperandExp，一种是leftElement是UnaryExp
             // 操作符为空的情况下，该表达式的返回信息和子表达式完全相同
             if (exp.leftElement instanceof BiOperandExp) { // 左子树是二元表达式

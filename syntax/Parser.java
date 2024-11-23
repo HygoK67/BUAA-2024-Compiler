@@ -69,6 +69,7 @@ public class Parser {
         FuncDef mainFuncDef = new FuncDef();
         mainFuncDef.lineNum = lexer.getCurrentToken().getLine();
         mainFuncDef.isMain = true;
+        mainFuncDef.ident = new Ident("main");
         skipSign(Token.TokenType.INTTK, null);
         skipSign(Token.TokenType.MAINTK, null);
         skipSign(Token.TokenType.LPARENT, null);

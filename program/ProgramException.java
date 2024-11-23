@@ -45,6 +45,19 @@ public class ProgramException {
         this.errorCode = errorCode;
     }
 
+    public static boolean containsSemanticsException() { // 检查程序是否有语义分析的错误
+        for (ProgramException e : exceptions) {
+            if (e.getErrorCode() != 'a'
+                && e.getErrorCode() != 'i'
+                && e.getErrorCode() != 'j'
+                && e.getErrorCode() != 'k') {
+                return true;
+            }
+        }
+        return false;
+    }
+
+
     @Override
     public String toString() {
         return this.lineNum + " " + this.errorCode;

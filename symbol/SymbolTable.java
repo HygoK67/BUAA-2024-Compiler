@@ -12,14 +12,16 @@ public class SymbolTable {
     private int scopeNum;
     private SymbolTable parentScopeSymbolTable; // 父作用域的符号表指针
     private HashMap<Integer, SymbolTable> sonScopeSymbolTables; // 各个子作用域的符号表指针
+    private FunctionType.ReturnType currentReturnType;
 
 
-    public SymbolTable(int scopeNum, SymbolTable parentScopeSymbolTable) {
+    public SymbolTable(int scopeNum, SymbolTable parentScopeSymbolTable, FunctionType.ReturnType currentReturnType) {
         this.symbolTable = new HashMap<>();
         this.symbols = new ArrayList<>();
         this.scopeNum = scopeNum;
         this.parentScopeSymbolTable = parentScopeSymbolTable;
         this.sonScopeSymbolTables = new HashMap<>();
+        this.currentReturnType = currentReturnType;
     }
 
     // 对于某一个特定的符号表所要用到的函数
@@ -73,6 +75,10 @@ public class SymbolTable {
         return scopeNum;
     }
 
+    public FunctionType.ReturnType getCurrentReturnType() {
+        return currentReturnType;
+    }
+
     // 符号表全局需要用到的函数和变量
     private static int symbolTableCount; // 记录了全部的符号表数量，初始时为 1
 
@@ -81,7 +87,7 @@ public class SymbolTable {
 
     static {
         symbolTableCount = 1;
-        currentSymbolTable = new SymbolTable(1, null);
+        currentSymbolTable = new SymbolTable(1, null, null);
         symbolTableList = new ArrayList<>();
         symbolTableList.add(currentSymbolTable);
     }
@@ -90,9 +96,18 @@ public class SymbolTable {
         return currentSymbolTable;
     }
 
-    public static SymbolTable newSymbolTable() {
+    public static SymbolTable newSymbolTable() { // 同函数内新建作用域
         symbolTableCount += 1;
-        SymbolTable newSymbolTable = new SymbolTable(symbolTableCount, currentSymbolTable);
+        SymbolTable newSymbolTable = new SymbolTable(symbolTableCount, currentSymbolTable, currentSymbolTable.currentReturnType);
+        currentSymbolTable.sonScopeSymbolTables.put(newSymbolTable.scopeNum, newSymbolTable);
+        currentSymbolTable = newSymbolTable;
+        symbolTableList.add(currentSymbolTable);
+        return currentSymbolTable;
+    }
+
+    public static SymbolTable newSymbolTable(FunctionType.ReturnType returnType) { // 进如一个新的函数的作用域
+        symbolTableCount += 1;
+        SymbolTable newSymbolTable = new SymbolTable(symbolTableCount, currentSymbolTable, returnType);
         currentSymbolTable.sonScopeSymbolTables.put(newSymbolTable.scopeNum, newSymbolTable);
         currentSymbolTable = newSymbolTable;
         symbolTableList.add(currentSymbolTable);
@@ -111,7 +126,7 @@ public class SymbolTable {
     }
 
     public static void printSymbolTable(FileWriter debugWriter) throws IOException {
-        System.out.println("符号表数量为 " + symbolTableList.size());
+        //System.out.println("符号表数量为 " + symbolTableList.size());
         for (SymbolTable symbolTable : symbolTableList) {
             for (Symbol symbol : symbolTable.symbols) {
                 debugWriter.write(symbol.toString() + "\n");

@@ -1,4 +1,5 @@
 import lexical.Lexer;
+import llvm.IRGenerator;
 import program.ProgramException;
 import program.SourceProgram;
 import semantics.Visitor;
@@ -46,9 +47,17 @@ public class Compiler {
             errorWriter.write(exception.toString() + "\n");
         }
 
+        if (!ProgramException.containsSemanticsException()) { // 保证没有语义分析的错误再进行代码生成
+            FileWriter irWriter = new FileWriter("llvm_ir.txt");
+            IRGenerator irGenerator = new IRGenerator(irWriter);
+            irGenerator.codeGen(compUnit);
+            irWriter.close();
+        }
+
         // 关闭文件输出流
         parseWriter.close();
         errorWriter.close();
         visitorWriter.close();
+
     }
 }
