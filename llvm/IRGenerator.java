@@ -8,11 +8,8 @@ import symbol.ValueType;
 import syntax.nodes.*;
 import util.Utilities;
 
-import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
-import java.io.OutputStream;
-import java.lang.reflect.Array;
 import java.util.ArrayList;
 
 public class IRGenerator {
@@ -20,12 +17,27 @@ public class IRGenerator {
     private FileWriter irWriter;
     private int nextScope;
     private int virtualRegIndex; // 用于进行虚拟寄存器分配
-    private int indentSpaceCount = 0; // 用于控制缩进
+    private int basicBlockIndex; // 用于进行基本块的分配
+    private String currentBasicBlockTag;
+    private int indentSpaceCount; // 用于控制缩进
+    private Value returnValue;    // 用于存储返回值
+    private boolean branchedInCurrentBasicBlock; // 标识当前基本块内是否已经产生了跳转操作
+    private String forLoopUpdateBBTag; // for 语句更新语句所在基本块标签，用于生成 continue 语句
+    private String forLoopEndBBTag; // for 语句结束所在基本块标签，用于生成 break 语句
 
     private void writeIndent() throws IOException {
         for (int i = 0; i < indentSpaceCount; i++) {
             irWriter.write(" ");
         }
+    }
+
+    private String allocBasicBlock() {
+        basicBlockIndex++;
+        return "bb" + (basicBlockIndex - 1);
+    }
+
+    private void resetBasicBlock() {
+        basicBlockIndex = 0;
     }
 
     private void nextLevelIndent() {
@@ -87,6 +99,7 @@ public class IRGenerator {
         if (currentScope() == 1) { // 生成全局变量/常量的 IR
             for (VarConstDef varConstDef : decl.varConstDefs) {
                 Symbol symbol = getSymbol(varConstDef.ident.name);
+                symbol.definedInLLVMIR = true;
                 ValueType type = (ValueType) symbol.symbolType;
                 printCode("@" + symbol.symbolName + " = ", true);
                 symbol.llvmIRSymbol = "@" + symbol.symbolName; // 更新符号表里面的 ir 表示
@@ -131,6 +144,7 @@ public class IRGenerator {
         else { // 生成局部变量的 IR
             for (VarConstDef varConstDef : decl.varConstDefs) {
                 Symbol symbol = getSymbol(varConstDef.ident.name);
+                symbol.definedInLLVMIR = true;
                 ValueType symbolType = (ValueType) symbol.symbolType;
                 // 首先在栈上 alloca 一个对应的变量
                 int regNum = allocReg();
@@ -191,13 +205,21 @@ public class IRGenerator {
         printCode("define ", true);
         if (funcDef.isMain) {
             printCode("i32 @main() {\n", false);
-            printCode("entry:\n", true);
+            resetBasicBlock();
+            String firstBBTag = allocBasicBlock();
+            printBasicBlock(firstBBTag);
+
             nextLevelIndent();
             resetReg();
             pushScope();
+            int returnValPtr = allocReg(); // 分配返回值
+            printCode("%" + returnValPtr + " = alloca i32\n", true);
+            printCode("store i32 0, i32* %" + returnValPtr + "\n", true);
+            this.returnValue = new Value("%" + returnValPtr, Type.i32ptr());
         }
         else {
             Symbol funcSymbol = getSymbol(funcDef.ident.name);
+            funcSymbol.definedInLLVMIR = true;
             FunctionType funcType = (FunctionType) funcSymbol.symbolType;
             if (funcType.returnType == FunctionType.ReturnType.VOID) { // 答应函数类型
                 printCode("void ", false);
@@ -226,8 +248,26 @@ public class IRGenerator {
                 }
             }
             printCode(") {\n", false);
-            printCode("entry:\n", true);
+            resetBasicBlock();
+            String firstBBTag = allocBasicBlock();
+            printBasicBlock(firstBBTag);
+
             nextLevelIndent();
+            if (funcType.returnType == FunctionType.ReturnType.INT) {
+                int returnValPtr = allocReg(); // 分配返回值
+                printCode("%" + returnValPtr + " = alloca i32\n", true);
+                printCode("store i32 0, i32* %" + returnValPtr + "\n", true);
+                this.returnValue = new Value("%" + returnValPtr, Type.i32ptr());
+            }
+            else if (funcType.returnType == FunctionType.ReturnType.CHR) {
+                int returnValPtr = allocReg(); // 分配返回值
+                printCode("%" + returnValPtr + " = alloca i8\n", true);
+                printCode("store i8 0, i8* %" + returnValPtr + "\n", true);
+                this.returnValue = new Value("%" + returnValPtr, Type.i8ptr());
+            }
+            else {
+                this.returnValue = null;
+            }
             // 对于非主函数，要把所有的参数先都保存到栈上
             for (int i = 0;i < funcType.paramNames.size();i++) {
                 int regNum = allocReg();
@@ -244,12 +284,32 @@ public class IRGenerator {
                 printCode("\n", false);
                 // 最后更新符号表内当前符号的 llvm ir 表示
                 getSymbol(funcType.paramNames.get(i)).llvmIRSymbol = "%" + regNum;
+                getSymbol(funcType.paramNames.get(i)).definedInLLVMIR = true;
             }
-
         }
         // 接下来正式生成函数体
         codeGen(funcDef.block);
-
+        // 生成返回语句
+        if (this.returnValue == null && !this.branchedInCurrentBasicBlock) {
+            // 如果当前函数是 void 类型的函数并且还没有进行返回（AST里面省略了）
+            // 就添加上一个 ret void
+            printCode("br label %bbreturn\n", true);
+        }
+        printBasicBlock("bbreturn");
+        if (this.returnValue == null) { // void 返回类型的函数直接返回
+            printCode("ret void\n", true);
+        }
+        else {
+            int retValRegNum = allocReg();
+            if (this.returnValue.type.basicType == Type.BasicType.i32ptr) {
+                printCode("%" + retValRegNum + " = load i32, i32* " + this.returnValue + "\n", true);
+                printCode("ret i32 %" + retValRegNum + "\n", true);
+            }
+            else {
+                printCode("%" + retValRegNum + " = load i8, i8* " + this.returnValue + "\n", true);
+                printCode("ret i8 %" + retValRegNum + "\n", true);
+            }
+        }
         popScope(); // 最后需要回到上一层作用域并且重置缩进
         prevLevelIndent();
         printCode("}\n", true);
@@ -267,6 +327,9 @@ public class IRGenerator {
     }
 
     private void codeGen(Stmt stmt) throws IOException {
+        if (this.branchedInCurrentBasicBlock) { // 如果当前基本块内已经产生了跳转，那么需要新建一个基本块来保存后续的指令
+            printBasicBlock(allocBasicBlock());
+        }
         if (stmt.caseNum == 0) { // 'lval' = 'exp'
             Symbol symbol = getSymbol(stmt.lval0.ident.name);
             ValueType symbolType = (ValueType) symbol.symbolType;
@@ -305,22 +368,93 @@ public class IRGenerator {
         }
         else if (stmt.caseNum == 2) { // stmt -> Block
             pushScope();
-            nextLevelIndent();
             codeGen(stmt.block2);
-            prevLevelIndent();
             popScope();
+        }
+        else if (stmt.caseNum == 3) { //  if 语句
+            // 首先获取当前的基本块，并分配三个基本块
+            String firstCondBBTag = this.currentBasicBlockTag;
+            String condTrueBBTag = allocBasicBlock(); // 条件为真跳转到的基本块
+            String condFalseBBTag = allocBasicBlock(); // 条件为假跳转到的基本块
+            String endBBTag = allocBasicBlock(); // 结束的基本块
+            // TODO 生成条件代码
+            codeGen(stmt.condExp3, condFalseBBTag, condTrueBBTag);
+
+            printBasicBlock(condTrueBBTag); // 打印基本块标签
+            codeGen(stmt.ifStmtIf3); // 生成条件为真执行的语句
+            if (!this.branchedInCurrentBasicBlock) {
+                printCode("br label %" + endBBTag + "\n", true); // 执行结束跳转到结束基本块
+            }
+
+            printBasicBlock(condFalseBBTag); // 打印基本块标签
+            if (stmt.ifStmtElse3 != null) { // 如果有 else 语句，就继续生成
+                codeGen(stmt.ifStmtElse3);
+            }
+            if (!this.branchedInCurrentBasicBlock) {
+                printCode("br label %" + endBBTag + "\n", true); // 执行结束跳转到结束基本块
+            }
+
+            printBasicBlock(endBBTag); // 打印出口基本块标签
+        }
+        else if (stmt.caseNum == 4) { // for 语句
+            // 首先获取当前的基本块，并分配四个基本块
+            String crtBBTag = this.currentBasicBlockTag; // 当前所在的基本块，其包含有 for 语句的初始 stmt
+            String condExpBBTag = allocBasicBlock(); // 条件判断所在的基本块
+            String stmtBBTag = allocBasicBlock(); // 循环体所在的开始基本块
+            String updateBBTag = allocBasicBlock(); // 循环更新语句所在的基本块
+            String endBBTag = allocBasicBlock(); // 循环结束后的第一个基本块
+            this.forLoopEndBBTag = endBBTag;
+            this.forLoopUpdateBBTag = updateBBTag;
+
+            if (stmt.forStmtA4 != null) { // 如果存在初始化语句，那么对其进行代码生成
+                codeGen(stmt.forStmtA4);
+            }
+            printCode("br label %" + condExpBBTag + "\n", true);
+
+            printBasicBlock(condExpBBTag); // 进入新的条件判断基本块
+            if (stmt.condExp4 != null) {
+                codeGen(stmt.condExp4, endBBTag, stmtBBTag); // 条件满足就到循环体，不满足则直接跳转到最后
+            } else {
+                printCode("br label %" + stmtBBTag + "\n", true); // 如果没有条件，则直接跳转到循环体
+            }
+
+            printBasicBlock(stmtBBTag);
+            codeGen(stmt.stmt4); // 生成循环体的代码
+            if (!this.branchedInCurrentBasicBlock) { // 如果当前所在的基本块内部没有产生跳转操作, 则最后一步跳转到更新语句
+                printCode("br label %" + updateBBTag + "\n", true);
+            }
+
+            printBasicBlock(updateBBTag);
+            if (stmt.forStmtB4 != null) {
+                codeGen(stmt.forStmtB4);
+            }
+            printCode("br label %" + condExpBBTag + "\n", true); // 更新完成后跳转回到条件判断
+
+            // 最后打印出口基本块标签
+            printBasicBlock(endBBTag);
+
+        }
+        else if (stmt.caseNum == 5) { // break 语句
+            printCode("br label %" + this.forLoopEndBBTag + "\n", true);
+            this.branchedInCurrentBasicBlock = true;
+        }
+        else if (stmt.caseNum == 6) { // continue 语句
+            printCode("br label %" + this.forLoopUpdateBBTag + "\n", true);
+            this.branchedInCurrentBasicBlock = true;
         }
         else if (stmt.caseNum == 7) { // stmt -> return [exp];
             if (stmt.returnExp7 == null) {
-                printCode("ret void\n", true);
+                printCode("br label %bbreturn\n", true);
             }
             else {
                 Value returnValue = codeGen(stmt.returnExp7);
                 if (SymbolTable.getCurrentSymbolTable().getCurrentReturnType() == FunctionType.ReturnType.CHR) {
                     returnValue = convertToI8(returnValue);
                 }
-                printCode("ret " + returnValue.type + " " + returnValue.value + "\n", true);
+                printCode("store " + returnValue.type + " " + returnValue.value + ", " + this.returnValue.type + " " + this.returnValue.value + "\n", true);
+                printCode("br label %bbreturn\n", true);
             }
+            this.branchedInCurrentBasicBlock = true;
         }
         else if (stmt.caseNum == 8) { // getint()
             Symbol symbol = getSymbol(stmt.lval8.ident.name);
@@ -427,6 +561,55 @@ public class IRGenerator {
         }
     }
 
+    private void codeGen(BiOperandExp exp, String nextCondTag, String destTag) throws IOException {
+        // 这个函数专门用于生成条件语句中短路求值的代码，exp 是目前需要解析的条件表达式，
+        // nextCondTag 是当前的条件不满足时，需要跳转到的下一个基本块标签
+        // destTag 是条件满足时需要跳转到的下一个标签
+
+        if (exp.operator == null) { // 表达式的操作符是空的
+            if (exp.leftElement instanceof BiOperandExp) { // 如果左节点是一个二元表达式，则继续进行代码生成
+                BiOperandExp subExp = (BiOperandExp) exp.leftElement;
+                codeGen(subExp, nextCondTag, destTag);
+            }
+            else if (exp.leftElement instanceof UnaryExp) { // 如果左节点是一个一元表达式，则可以根据该表达式的值和 0 的关系来进行跳转
+                UnaryExp subExp = (UnaryExp) exp.leftElement;
+                Value expValue = codeGen(subExp);
+                int regNum = allocReg();
+                printCode("%" + regNum + " = icmp ne i32 " + expValue + ", 0\n", true);
+                printCode("br i1 %" + regNum + ", " + "label %" + destTag + ", label %" + nextCondTag + "\n", true);
+            }
+            else {
+                throw new IOException("在进行条件表达式生成时遇到了不支持的 leftElement!");
+            }
+        }
+        else {
+            // 表达式的操作符不是空的, 分为以下几种情况
+            if (exp.operator.getType() == Token.TokenType.AND) {
+                // 操作符是 && 符号，需要进行短路求值
+                // 左侧是 LandExp 右侧是 EqExp
+                String bbTag = allocBasicBlock(); // 为当前的条件分配一个基本块，则左子树失败时会跳转到当前基本块进行判断
+                codeGen((BiOperandExp) exp.leftElement, nextCondTag, bbTag); // 左侧条件满足，则不发生跳转，如果不满足则立即跳转
+                printBasicBlock(bbTag);
+                codeGen((BiOperandExp) exp.rightElement, nextCondTag, destTag);
+            }
+            else if (exp.operator.getType() == Token.TokenType.OR) {
+                // 操作符是 || 符号，需要进行短路求值
+                // 左侧是 LorExp 右侧是 LandExp
+                String bbTag =  allocBasicBlock(); // 为当前的右侧条件分配一个基本块，则左子树失败时会跳转到当前基本块进行判断
+                codeGen((BiOperandExp) exp.leftElement, bbTag, destTag); // 左侧的 or 表达式如果有任何一个条件为 true，则整体为 true，跳转到 destTag, 如果所有条件都false，则回到当前所在的 tag
+                printBasicBlock(bbTag);
+                codeGen((BiOperandExp) exp.rightElement, nextCondTag, destTag); // 右侧的 and 表达式如果有任何一个条件为 false, 则and表达式整体为 false, 进而整个 or 表达式也是 false，直接跳到 destTag, 否则跳转到 nextCondTag 进行检查
+            }
+            else {
+                // 操作符是其他符号，不需要进行短路求值，调用 codeGen(exp) 得到其值然后与 0 进行比较，生成对应的代码即可，可以仿照上面的 unaryExp 那一块
+                Value expValue = codeGen(exp);
+                int regNum = allocReg();
+                printCode("%" + regNum + " = icmp ne i32 " + expValue + ", 0\n", true);
+                printCode("br i1 %" + regNum + ", " + "label %" + destTag + ", label %" + nextCondTag + "\n", true);
+            }
+        }
+    }
+
     private Value codeGen(BiOperandExp exp) throws IOException {
         if (exp.operator == null) {
             // 操作符为null有两种情况，一种是 leftElement 是BiOperandExp，一种是leftElement是UnaryExp
@@ -462,14 +645,32 @@ public class IRGenerator {
                 case MULT -> printCode("%" + regNum + " = mul i32 " + leftValue + ", " + rightValue + "\n", true);
                 case DIV -> printCode("%" + regNum + " = sdiv i32 " + leftValue + ", " + rightValue + "\n", true);
                 case MOD -> printCode("%" + regNum + " = srem i32 " + leftValue + ", " + rightValue + "\n", true);
-                case AND -> {} // TODO
-                case OR -> {} // TODO
-                case EQL -> {} // TODO
-                case NEQ -> {} // TODO
-                case LSS -> {} // TODO
-                case LEQ -> {} // TODO
-                case GRE -> {} // TODO
-                case GEQ -> {} // TODO
+                case AND -> {} // 不应该在这里出现，应该在条件语句那里出现
+                case OR -> {} // 不应该在这里出现，应该在条件语句那里出现
+                case EQL -> {
+                    printCode("%" + regNum + " = icmp eq i32 " + leftValue + ", " + rightValue + "\n", true); // 首先进行比较操作
+                    return convertFromI1ToI32(new Value("%" + regNum, Type.i1())); // 然后再把 i1 转化为 i32 返回
+                }
+                case NEQ -> {
+                    printCode("%" + regNum + " = icmp ne i32 " + leftValue + ", " + rightValue + "\n", true); // 首先进行比较操作
+                    return convertFromI1ToI32(new Value("%" + regNum, Type.i1())); // 然后再把 i1 转化为 i32 返回
+                }
+                case LSS -> {
+                    printCode("%" + regNum + " = icmp slt i32 " + leftValue + ", " + rightValue + "\n", true); // 首先进行比较操作
+                    return convertFromI1ToI32(new Value("%" + regNum, Type.i1())); // 然后再把 i1 转化为 i32 返回
+                }
+                case LEQ -> {
+                    printCode("%" + regNum + " = icmp sle i32 " + leftValue + ", " + rightValue + "\n", true); // 首先进行比较操作
+                    return convertFromI1ToI32(new Value("%" + regNum, Type.i1())); // 然后再把 i1 转化为 i32 返回
+                }
+                case GRE -> {
+                    printCode("%" + regNum + " = icmp sgt i32 " + leftValue + ", " + rightValue + "\n", true); // 首先进行比较操作
+                    return convertFromI1ToI32(new Value("%" + regNum, Type.i1())); // 然后再把 i1 转化为 i32 返回
+                }
+                case GEQ -> {
+                    printCode("%" + regNum + " = icmp sge i32 " + leftValue + ", " + rightValue + "\n", true); // 首先进行比较操作
+                    return convertFromI1ToI32(new Value("%" + regNum, Type.i1())); // 然后再把 i1 转化为 i32 返回
+                }
             }
             return new Value("%" + regNum, Type.i32());
         }
@@ -494,8 +695,15 @@ public class IRGenerator {
                 return new Value("%" + regNum, Type.i32());
             }
             else if (exp.unaryOp.getType() == Token.TokenType.NOT) {
-                // TODO
-                return new Value("", Type.i32());
+                // %x = icmp ne i32 {value}, 0
+                // %y = xor i1 %x, i1 1
+                // %z = zext i1 %y to i32
+                // %z 即为所得
+                int regNum = allocReg();
+                printCode("%" + regNum + " = icmp ne i32 " + value + ", 0\n", true);
+                int regNum2 = allocReg();
+                printCode("%" + regNum2 + " = xor i1 %" + regNum + ", 1\n", true);
+                return convertFromI1ToI32(new Value("%" + regNum2, Type.i1())); // 最后转化到 i32
             }
             else {
                 throw new IOException("不支持的 UnaryExp 类型!");
@@ -528,7 +736,7 @@ public class IRGenerator {
 
     private Value codeGen(Lval lval) throws IOException {
         // 有可能是数组 arr[i] 或者普通变量 var 或者数组变量本身 arr (在函数调用中出现)
-        Symbol symbol = getSymbol(lval.ident.name); // 首先检索符号表，找到对应的符号
+        Symbol symbol = SymbolTable.getCurrentSymbolTable().searchSymbolInCodeGen(lval.ident.name); // 首先检索符号表，找到对应的符号
         ValueType symbolType = (ValueType) symbol.symbolType;
         if (lval.exp == null) {
             if (symbolType.arrayLength == null) {
@@ -544,7 +752,7 @@ public class IRGenerator {
                     return new Value("%" + regNum, Type.i32());
                 }
                 else {
-                    return convertToI32(new Value("%" + regNum, Type.i8()));
+                    return convertFromI8ToI32(new Value("%" + regNum, Type.i8()));
                 }
             }
             else { // 数组变量
@@ -567,7 +775,7 @@ public class IRGenerator {
                 return new Value("%" + regNum, Type.i32());
             }
             else {
-                return convertToI32(new Value("%" + regNum, Type.i8()));
+                return convertFromI8ToI32(new Value("%" + regNum, Type.i8()));
             }
         }
     }
@@ -589,16 +797,9 @@ public class IRGenerator {
         if (functionType.returnType == FunctionType.ReturnType.VOID) {
             printCode("call void @" + ident.name + "(", true);
             // 打印出所有的参数，类型 + 值
+            // 函数的实参类型只有可能有这几种情况: i32, i8, i32*, i8*
             for (int i = 0; i < realParamValues.size();i++) {
-                if (realParamValues.get(i).type == Type.i32()) {
-
-                }
-                else if (realParamValues.get(i).type == Type.i8()) {
-                    // TODO
-                }
-                else {
-                    printCode(realParamValues.get(i).type + " " + realParamValues.get(i).value, false);
-                }
+                printCode(realParamValues.get(i).type + " " + realParamValues.get(i).value, false);
                 if (i < realParamValues.size() - 1) {
                     printCode(", ", false);
                 }
@@ -623,7 +824,7 @@ public class IRGenerator {
                 return new Value("%" + resultRegNum, Type.i32());
             }
             else {
-                return convertToI32(new Value("%" + resultRegNum, Type.i8() ));
+                return convertFromI8ToI32(new Value("%" + resultRegNum, Type.i8() ));
             }
         }
     }
@@ -675,12 +876,21 @@ public class IRGenerator {
         }
     }
 
-    private Value convertToI32(Value i8Value) throws IOException {
+    private Value convertFromI8ToI32(Value i8Value) throws IOException {
         if (i8Value.type.basicType != Type.BasicType.i8) {
             throw new IOException("i8 转换为 i32 出错!");
         }
         int regNum = allocReg();
         printCode("%" + regNum + " = sext i8 " + i8Value + " to i32\n", true);
+        return new Value("%" + regNum, Type.i32());
+    }
+
+    private Value convertFromI1ToI32(Value i1Value) throws IOException {
+        if (i1Value.type.basicType != Type.BasicType.i1) {
+            throw new IOException("i1 转换为 i32 出错!");
+        }
+        int regNum = allocReg();
+        printCode("%" + regNum + " = zext i1 " + i1Value + " to i32\n", true);
         return new Value("%" + regNum, Type.i32());
     }
 
@@ -744,6 +954,12 @@ public class IRGenerator {
             throw new IOException("输出数字时类型错误!");
         }
         printCode("call void @putint(" + outputValue.type + " " + outputValue.value + ")\n", true);
+    }
+
+    private void printBasicBlock(String basicBlockTag) throws IOException {
+        printCode(basicBlockTag + ":\n", false);
+        this.currentBasicBlockTag = basicBlockTag;
+        this.branchedInCurrentBasicBlock = false;
     }
 
     private void printCode(String code, boolean indent) throws IOException {

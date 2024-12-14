@@ -71,6 +71,20 @@ public class SymbolTable {
         }
     }
 
+    public Symbol searchSymbolInCodeGen(String symbolName) {
+        if (symbolTable.containsKey(symbolName) && symbolTable.get(symbolName).definedInLLVMIR) {
+            return symbolTable.get(symbolName);
+        }
+        else {
+            if (parentScopeSymbolTable != null) {
+                return parentScopeSymbolTable.searchSymbolInCodeGen(symbolName);
+            }
+            else {
+                return null;
+            }
+        }
+    }
+
     public int getScopeNum() {
         return scopeNum;
     }

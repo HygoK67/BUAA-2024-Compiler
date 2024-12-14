@@ -2,7 +2,7 @@ package llvm;
 
 public class Type {
     public enum BasicType {
-        i32, i8, vo, i32ptr, i8ptr, i32arr, i8arr, i32arrptr, i8arrptr
+        i32, i8, i1, vo, i32ptr, i8ptr, i32arr, i8arr, i32arrptr, i8arrptr
     }
     public BasicType basicType;
     public Integer arrayLength;
@@ -14,6 +14,10 @@ public class Type {
 
     public static Type i32() {
         return new Type(BasicType.i32, null);
+    }
+
+    public static Type i1() {
+        return new Type(BasicType.i1, null);
     }
 
     public static Type i8() {
