@@ -328,8 +328,8 @@ public class Visitor {
             else {
                 // 当内部的exp不为空时，例如 a[5+2]，代表了对于数组的索引，需要进一步访问子表达式以获得其值
                 expInfo.type.arrayLength = null; // 索引表达式不为空，则表达式是普通的值，不再是数组类型
+                ExpInfo subExpInfo = visitExp(lval.exp); // 检查表达式
                 if (valueType.isConst) { // 如果是常数组，则还需要存储常数值
-                    ExpInfo subExpInfo = visitExp(lval.exp);
                     if (subExpInfo == null) {return null;} // 如果访问子表达式发生了异常，那么也就不继续分析当前的左值
                     if (subExpInfo.type.isConst) { // 只有数组本身是常数组并且数组的索引表达式也是常数表达式的时候才能赋值
                         expInfo.value = symbol.constValues.get(subExpInfo.value);
